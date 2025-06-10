@@ -9,6 +9,15 @@ from io import BytesIO
 
 app = FastAPI()
 
+# CORS middleware add karna yahin, app banate hi
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Development ke liye sabko allow, production me apne domain ka URL daal dena
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Set your Tesseract executable path here (adjust if needed)
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
