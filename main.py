@@ -2,6 +2,7 @@ import os
 import re
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from docx import Document
 import pytesseract
 from pdf2image import convert_from_bytes
