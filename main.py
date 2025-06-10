@@ -1,12 +1,13 @@
 import os
 import re
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from docx import Document
 import pytesseract
 from pdf2image import convert_from_bytes
 from io import BytesIO
+from docxtpl import DocxTemplate
 
 app = FastAPI()
 
@@ -27,11 +28,9 @@ def clean_text_single_line(text: str) -> str:
     Clean text to ensure it is a single line with symbols spaced out properly.
     Jo aapne bola — left to right reading, 1 line me.
     """
-    # Replace newlines and multiple spaces by single space
     text = text.replace('\n', ' ').replace('\r', ' ')
     text = re.sub(r'\s+', ' ', text)
     
-    # Add spaces around certain symbols (optional, can customize)
     symbols = ['/', '|', '-', '•']
     for sym in symbols:
         text = re.sub(rf'\s*{re.escape(sym)}\s*', f' {sym} ', text)
@@ -39,51 +38,58 @@ def clean_text_single_line(text: str) -> str:
     return text.strip()
 
 async def extract_text_from_docx(file: UploadFile) -> str:
-    """
-    Extracts text from Word file (.docx), reading paragraphs and tables
-    but concatenating all text into a single line (left-to-right).
-    """
     content = await file.read()
     file_stream = BytesIO(content)
     doc = Document(file_stream)
 
     full_text = []
 
-    # Extract paragraphs
     for para in doc.paragraphs:
         if para.text.strip():
             full_text.append(para.text.strip())
 
-    # Extract tables row-wise, concatenate cell texts row-wise with space
     for table in doc.tables:
         for row in table.rows:
             row_text = ' '.join(cell.text.strip() for cell in row.cells if cell.text.strip())
             if row_text:
                 full_text.append(row_text)
 
-    # Join all text pieces with space (single line)
     text_single_line = ' '.join(full_text)
     return clean_text_single_line(text_single_line)
 
 async def extract_text_from_pdf(file: UploadFile) -> str:
-    """
-    Extract text from PDF using OCR always.
-    Converts each PDF page to image and applies Tesseract OCR.
-    """
     content = await file.read()
     images = convert_from_bytes(content)
 
     extracted_text = []
     for image in images:
-        # You can customize Tesseract config as needed
         custom_config = r'--psm 4'
         page_text = pytesseract.image_to_string(image, config=custom_config)
         if page_text.strip():
             extracted_text.append(page_text.strip())
 
-    # Join extracted text from all pages into single line text
     text_single_line = ' '.join(extracted_text)
     return clean_text_single_line(text_single_line)
+
+def generate_cv(context: dict) -> str:
+    try:
+        template_path = os.path.join("templates", "uk_danos_compliance.docx")
+        doc = DocxTemplate(template_path)
+        doc.render(context)
+
+        # Candidate ka naam safe filename me convert karo
+        full_name = context.get("FULL_NAME", "Candidate").strip()
+        safe_name = re.sub(r'[^\w\s-]', '', full_name).replace(' ', '_')
+        output_filename = f"{safe_name}.docx"
+        output_path = os.path.join("generated_cvs", output_filename)
+
+        # Ensure output folder exists
+        os.makedirs("generated_cvs", exist_ok=True)
+
+        doc.save(output_path)
+        return output_path
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CV generation failed: {str(e)}")
 
 @app.post("/upload/")
 async def upload_cv(file: UploadFile = File(...)):
@@ -95,10 +101,27 @@ async def upload_cv(file: UploadFile = File(...)):
     else:
         raise HTTPException(status_code=400, detail="Unsupported file format. Please upload .docx or .pdf")
 
-    # Return the extracted cleaned text as JSON response
     return JSONResponse({"extracted_text": text})
+
+@app.post("/generate-cv/")
+async def generate_cv_endpoint(context: dict):
+    output_path = generate_cv(context)
+    return JSONResponse({
+        "message": "CV generated successfully!",
+        "output_file": output_path
+    })
+
+@app.get("/download-cv/")
+async def download_cv(filename: str):
+    file_path = os.path.join("generated_cvs", filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    )
 
 @app.get("/")
 async def root():
     return {"message": "Welcome to CVFormatic AI Backend"}
-
