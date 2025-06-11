@@ -93,15 +93,19 @@ def generate_cv(context: dict) -> str:
 
 @app.post("/upload/")
 async def upload_cv(file: UploadFile = File(...)):
-    filename = file.filename.lower()
-    if filename.endswith(".docx"):
-        text = await extract_text_from_docx(file)
-    elif filename.endswith(".pdf"):
-        text = await extract_text_from_pdf(file)
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported file format. Please upload .docx or .pdf")
+    try:
+        filename = file.filename.lower()
+        if filename.endswith(".docx"):
+            text = await extract_text_from_docx(file)
+        elif filename.endswith(".pdf"):
+            text = await extract_text_from_pdf(file)
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file format. Please upload .docx or .pdf")
 
-    return JSONResponse({"extracted_text": text})
+        return JSONResponse({"extracted_text": text})
+    except Exception as e:
+        print(f"Error during upload: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.post("/generate-cv/")
 async def generate_cv_endpoint(context: dict):
